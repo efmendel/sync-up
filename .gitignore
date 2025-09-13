@@ -1,0 +1,5 @@
+
+# Python Virtual Environment
+ml-service/venv/
+ml-service/__pycache__/
+**/*.pyc

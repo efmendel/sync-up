@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 import openai
 try:
@@ -896,6 +896,11 @@ def get_location_examples():
     except Exception as e:
         logger.error(f"Error getting location examples: {e}")
         return jsonify({"error": "Internal server error"}), 500
+
+@app.route('/')
+def serve_frontend():
+    """Serve the frontend HTML file"""
+    return send_from_directory('static', 'music_search_frontend.html')
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5005)

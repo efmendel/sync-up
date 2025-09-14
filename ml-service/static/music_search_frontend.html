@@ -12,8 +12,8 @@
         }
 
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            font-family: 'Nunito', sans-serif;
+            background: linear-gradient(135deg, #5a5cf3 0%, #9c4695 70%, #480e43 100%);
             min-height: 100vh;
             color: #333;
         }
@@ -97,7 +97,7 @@
         }
 
         .results-section {
-            background: white;
+            background: linear-gradient(135deg, #5a5cf3 0%, #9c4695 70%, #480e43 100%);
             border-radius: 15px;
             padding: 30px;
             box-shadow: 0 10px 30px rgba(0,0,0,0.2);
@@ -222,9 +222,41 @@
 
         .loading {
             text-align: center;
-            padding: 40px;
-            color: #667eea;
+            padding: 60px 40px;
+            background: white;
+            border-radius: 20px;
+            margin: 20px auto;
+            max-width: 400px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            backdrop-filter: blur(10px);
+        }
+
+        .loading-content {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .loading-spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #5a5cf3;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        .loading-text {
+            color: #333;
             font-size: 18px;
+            font-weight: 500;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
         }
 
         .error {
@@ -271,8 +303,10 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1>🎵 Sync Up</h1>
-            <p>Find musicians near you with intelligent location matching</p>
+            <h1>Sync Up</h1>
+            <p><em>Solo to symphony</em></p>
+            <br>
+            <p>Connect with talented musicians, find perfect venues, and join the vibrant NYC music community</p>
         </div>
 
         <div class="search-section">
@@ -297,7 +331,7 @@
 
         <div class="results-section" id="resultsSection">
             <div class="results-header">
-                <div class="results-count" id="resultsCount">0 musicians found</div>
+                <div class="results-count" id="resultsCount" style="display: none;"></div>
                 <div class="location-info" id="locationInfo"></div>
             </div>
             <div class="profiles-grid" id="profilesGrid"></div>
@@ -316,7 +350,14 @@
             const profilesGrid = document.getElementById('profilesGrid');
 
             resultsSection.style.display = 'block';
-            profilesGrid.innerHTML = '<div class="loading">🔍 Searching for musicians...</div>';
+            profilesGrid.innerHTML = `
+                <div class="loading">
+                    <div class="loading-content">
+                        <div class="loading-spinner"></div>
+                        <div class="loading-text">🔍 Searching for musicians...</div>
+                    </div>
+                </div>
+            `;
         }
 
         function showError(message) {
@@ -493,18 +534,11 @@
 
                 const profilesData = await profilesResponse.json();
 
-                // Update results info
-                document.getElementById('resultsCount').textContent =
-                    `${profilesData.total_count} musician${profilesData.total_count !== 1 ? 's' : ''} found`;
+                // Hide results count
+                document.getElementById('resultsCount').style.display = 'none';
 
                 const locationInfo = document.getElementById('locationInfo');
-                if (location) {
-                    locationInfo.textContent = `📍 Sorted by proximity to "${location}" | 🎯 Query: "${query}"`;
-                    locationInfo.style.display = 'block';
-                } else {
-                    locationInfo.textContent = `🎯 Query: "${query}"`;
-                    locationInfo.style.display = 'block';
-                }
+                locationInfo.style.display = 'none';
 
                 // Render profiles (already sorted by backend compatibility score)
                 const profilesGrid = document.getElementById('profilesGrid');

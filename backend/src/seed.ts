@@ -69,19 +69,38 @@ const bios = [
   "Music therapist using music for healing, seeking collaboration with other healing arts practitioners."
 ];
 
-const names = [
-  'Alex Johnson', 'Jordan Smith', 'Taylor Brown', 'Morgan Davis', 'Casey Wilson',
-  'Riley Miller', 'Avery Garcia', 'Quinn Rodriguez', 'Parker Martinez', 'Sage Anderson',
-  'River Thompson', 'Phoenix White', 'Skyler Harris', 'Blake Martin', 'Cameron Jackson',
-  'Drew Thompson', 'Jesse Garcia', 'Reese Johnson', 'Emery Brown', 'Finley Davis',
-  'Hayden Wilson', 'Kendall Miller', 'Lennon Rodriguez', 'Peyton Martinez', 'Rowan Anderson',
-  'Sawyer White', 'Tanner Harris', 'Aubrey Martin', 'Bailey Jackson', 'Charlie Thompson',
-  'Dakota Garcia', 'Elliott Johnson', 'Frankie Brown', 'Gray Davis', 'Harper Wilson',
-  'Indigo Miller', 'Jamie Rodriguez', 'Kai Martinez', 'Lane Anderson', 'Marley White',
-  'Noah Harris', 'Ocean Martin', 'Piper Jackson', 'Quincy Thompson', 'Remy Garcia',
-  'Sloan Johnson', 'Teagan Brown', 'Uma Davis', 'Vega Wilson', 'Wren Miller',
-  'Xander Rodriguez', 'Yael Martinez', 'Zion Anderson', 'Aria White', 'Bodhi Harris'
+const firstNames = [
+  'Alex', 'Jordan', 'Taylor', 'Morgan', 'Casey', 'Riley', 'Avery', 'Quinn', 'Parker', 'Sage',
+  'River', 'Phoenix', 'Skyler', 'Blake', 'Cameron', 'Drew', 'Jesse', 'Reese', 'Emery', 'Finley',
+  'Hayden', 'Kendall', 'Lennon', 'Peyton', 'Rowan', 'Sawyer', 'Tanner', 'Aubrey', 'Bailey', 'Charlie',
+  'Dakota', 'Elliott', 'Frankie', 'Gray', 'Harper', 'Indigo', 'Jamie', 'Kai', 'Lane', 'Marley',
+  'Noah', 'Ocean', 'Piper', 'Quincy', 'Remy', 'Sloan', 'Teagan', 'Uma', 'Vega', 'Wren',
+  'Xander', 'Yael', 'Zion', 'Aria', 'Bodhi', 'Eden', 'Sage', 'Nova', 'Orion', 'Luna',
+  'Iris', 'Jude', 'Ezra', 'Ruby', 'Felix', 'Cora', 'Leo', 'Maya', 'Owen', 'Zara',
+  'Miles', 'Nora', 'Theo', 'Ivy', 'Max', 'Eva', 'Sam', 'Ava', 'Jake', 'Mia',
+  'Luke', 'Zoe', 'Ryan', 'Amy', 'Cole', 'Joy', 'Dean', 'Kate', 'Shane', 'Rose',
+  'Brett', 'Claire', 'Troy', 'Grace', 'Kyle', 'Hope', 'Reid', 'Faith', 'Jace', 'Brooke',
+  'Ty', 'Paige', 'Cade', 'Sage', 'Knox', 'Belle', 'Cruz', 'Jade', 'Reed', 'Skye'
 ];
+
+const lastNames = [
+  'Johnson', 'Smith', 'Brown', 'Davis', 'Wilson', 'Miller', 'Garcia', 'Rodriguez', 'Martinez', 'Anderson',
+  'Thompson', 'White', 'Harris', 'Martin', 'Jackson', 'Clark', 'Lewis', 'Lee', 'Walker', 'Hall',
+  'Allen', 'Young', 'Hernandez', 'King', 'Wright', 'Lopez', 'Hill', 'Scott', 'Green', 'Adams',
+  'Baker', 'Gonzalez', 'Nelson', 'Carter', 'Mitchell', 'Perez', 'Roberts', 'Turner', 'Phillips', 'Campbell',
+  'Parker', 'Evans', 'Edwards', 'Collins', 'Stewart', 'Sanchez', 'Morris', 'Rogers', 'Reed', 'Cook',
+  'Morgan', 'Bell', 'Murphy', 'Bailey', 'Rivera', 'Cooper', 'Richardson', 'Cox', 'Howard', 'Ward',
+  'Torres', 'Peterson', 'Gray', 'Ramirez', 'James', 'Watson', 'Brooks', 'Kelly', 'Sanders', 'Price',
+  'Bennett', 'Wood', 'Barnes', 'Ross', 'Henderson', 'Coleman', 'Jenkins', 'Perry', 'Powell', 'Long',
+  'Patterson', 'Hughes', 'Flores', 'Washington', 'Butler', 'Simmons', 'Foster', 'Gonzales', 'Bryant', 'Alexander',
+  'Russell', 'Griffin', 'Diaz', 'Hayes', 'Myers', 'Ford', 'Hamilton', 'Graham', 'Sullivan', 'Wallace'
+];
+
+function generateRandomName(): string {
+  const firstName = getRandomItem(firstNames);
+  const lastName = getRandomItem(lastNames);
+  return `${firstName} ${lastName}`;
+}
 
 function getRandomItems<T>(array: T[], count: number): T[] {
   const shuffled = [...array].sort(() => 0.5 - Math.random());
@@ -101,13 +120,14 @@ async function seed() {
 
   const users = [];
 
-  for (let i = 0; i < 55; i++) {
+  for (let i = 0; i < 120; i++) {
     const userInstruments = getRandomItems(instruments, Math.floor(Math.random() * 3) + 1);
     const userGenres = getRandomItems(genres, Math.floor(Math.random() * 4) + 1);
+    const name = generateRandomName();
 
     const user = {
-      name: names[i] || `Musician ${i + 1}`,
-      email: `musician${i + 1}@example.com`,
+      name,
+      email: `${name.toLowerCase().replace(/\s+/g, '.')}${i}@example.com`,
       instruments: JSON.stringify(userInstruments),
       genres: JSON.stringify(userGenres),
       location: getRandomItem(locations),

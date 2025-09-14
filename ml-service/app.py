@@ -12,6 +12,7 @@ import re
 from typing import Dict, Any, Optional
 import logging
 from datetime import datetime
+from optimized_matcher import OptimizedProfileMatcher
 
 app = Flask(__name__)
 CORS(app)
@@ -340,8 +341,9 @@ Return only valid JSON without any explanation:
 
         return result
 
-# Initialize parser
+# Initialize services
 parser = MusicQueryParser()
+matcher = OptimizedProfileMatcher("musician_profiles.json")
 
 @app.route('/health', methods=['GET'])
 def health_check():
@@ -350,8 +352,10 @@ def health_check():
         "status": "healthy",
         "services": {
             "openai": parser.openai_client is not None,
-            "spacy": parser.nlp is not None
-        }
+            "spacy": parser.nlp is not None,
+            "profile_matcher": len(matcher.profiles) > 0
+        },
+        "profile_count": len(matcher.profiles)
     })
 
 @app.route('/parse', methods=['POST'])
@@ -431,5 +435,169 @@ def get_examples():
 
     return jsonify({"examples": examples})
 
+@app.route('/match', methods=['POST'])
+def find_matches():
+    """Find matching musician profiles based on parsed query"""
+    try:
+        data = request.get_json()
+
+        if not data:
+            return jsonify({"error": "No JSON data provided"}), 400
+
+        # Check if we have a raw query to parse first
+        if 'query' in data and isinstance(data['query'], str):
+            # Parse the natural language query first
+            parsed_query = parser.parse_query(data['query'])
+            if 'error' in parsed_query:
+                return jsonify({"error": f"Query parsing failed: {parsed_query['error']}"}), 400
+        else:
+            # Use provided structured query
+            parsed_query = data
+
+        # Extract matching parameters
+        min_compatibility = data.get('min_compatibility', 0.7)
+        max_results = data.get('max_results', 20)
+
+        # Validate min_compatibility
+        if not isinstance(min_compatibility, (int, float)) or min_compatibility < 0 or min_compatibility > 1:
+            return jsonify({"error": "min_compatibility must be a number between 0 and 1"}), 400
+
+        # Validate max_results
+        if not isinstance(max_results, int) or max_results < 1 or max_results > 100:
+            return jsonify({"error": "max_results must be an integer between 1 and 100"}), 400
+
+        # Find matches using the profile matcher
+        results = matcher.find_matches(
+            parsed_query,
+            min_compatibility=min_compatibility,
+            max_results=max_results
+        )
+
+        # Add the original parsed query to results
+        results["parsed_query"] = parsed_query
+
+        return jsonify(results)
+
+    except Exception as e:
+        logger.error(f"Error finding matches: {e}")
+        return jsonify({"error": "Internal server error during matching"}), 500
+
+@app.route('/match/quick', methods=['POST'])
+def quick_match():
+    """Quick match endpoint that parses query and finds matches in one call"""
+    try:
+        data = request.get_json()
+
+        if not data or 'query' not in data:
+            return jsonify({"error": "Missing 'query' field in request"}), 400
+
+        query = data['query']
+        if not isinstance(query, str) or len(query.strip()) == 0:
+            return jsonify({"error": "Query must be a non-empty string"}), 400
+
+        if len(query) > 1000:
+            return jsonify({"error": "Query too long (max 1000 characters)"}), 400
+
+        # Parse the natural language query
+        start_time = datetime.now()
+        parsed_query = parser.parse_query(query)
+
+        if 'error' in parsed_query:
+            return jsonify({"error": f"Query parsing failed: {parsed_query['error']}"}), 400
+
+        # Get matching parameters
+        min_compatibility = data.get('min_compatibility', 0.7)
+        max_results = data.get('max_results', 10)  # Fewer results for quick match
+
+        # Find matches
+        results = matcher.find_matches(
+            parsed_query,
+            min_compatibility=min_compatibility,
+            max_results=max_results
+        )
+
+        # Calculate total processing time
+        total_time = (datetime.now() - start_time).total_seconds() * 1000
+
+        # Add comprehensive response
+        response = {
+            "matches": results["matches"],
+            "total_found": results["total_found"],
+            "parsed_query": parsed_query,
+            "processing_time": {
+                "parsing_ms": results.get("processing_time_ms", 0),
+                "matching_ms": results.get("processing_time_ms", 0),
+                "total_ms": round(total_time, 2)
+            },
+            "query_summary": results.get("query_summary", ""),
+            "search_timestamp": results.get("search_timestamp", datetime.now().isoformat())
+        }
+
+        return jsonify(response)
+
+    except Exception as e:
+        logger.error(f"Error in quick match: {e}")
+        return jsonify({"error": "Internal server error during quick match"}), 500
+
+@app.route('/profiles', methods=['GET'])
+def get_profiles():
+    """Get all musician profiles with optional filtering"""
+    try:
+        # Get query parameters
+        location = request.args.get('location')
+        instrument = request.args.get('instrument')
+        genre = request.args.get('genre')
+        collaboration_intent = request.args.get('collaboration_intent')
+        limit = request.args.get('limit', default=50, type=int)
+
+        profiles = matcher.profiles.copy()
+
+        # Apply filters
+        if location:
+            profiles = [p for p in profiles if p.get('location', '').lower().find(location.lower()) != -1]
+
+        if instrument:
+            profiles = [p for p in profiles if any(instrument.lower() in inst.lower() for inst in p.get('instruments', []))]
+
+        if genre:
+            profiles = [p for p in profiles if any(genre.lower() in g.lower() for g in p.get('genres', []))]
+
+        if collaboration_intent:
+            profiles = [p for p in profiles if p.get('collaboration_intent', '').lower().find(collaboration_intent.lower()) != -1]
+
+        # Limit results
+        profiles = profiles[:limit]
+
+        return jsonify({
+            "profiles": profiles,
+            "total_count": len(profiles),
+            "filters_applied": {
+                "location": location,
+                "instrument": instrument,
+                "genre": genre,
+                "collaboration_intent": collaboration_intent,
+                "limit": limit
+            }
+        })
+
+    except Exception as e:
+        logger.error(f"Error getting profiles: {e}")
+        return jsonify({"error": "Internal server error"}), 500
+
+@app.route('/profiles/<profile_id>', methods=['GET'])
+def get_profile(profile_id):
+    """Get a specific musician profile by ID"""
+    try:
+        profile = next((p for p in matcher.profiles if p['id'] == profile_id), None)
+
+        if not profile:
+            return jsonify({"error": "Profile not found"}), 404
+
+        return jsonify(profile)
+
+    except Exception as e:
+        logger.error(f"Error getting profile {profile_id}: {e}")
+        return jsonify({"error": "Internal server error"}), 500
+
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5003)
+    app.run(debug=True, host='0.0.0.0', port=5004)

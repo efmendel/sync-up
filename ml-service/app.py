@@ -13,6 +13,7 @@ from typing import Dict, Any, Optional
 import logging
 from datetime import datetime
 from optimized_matcher import OptimizedProfileMatcher
+from location_intelligence import NYCLocationIntelligence
 
 app = Flask(__name__)
 CORS(app)
@@ -24,6 +25,7 @@ class MusicQueryParser:
     def __init__(self):
         self.openai_client = None
         self.nlp = None
+        self.nyc_location_groups = self._build_nyc_location_groups()
         self.initialize_services()
 
     def initialize_services(self):
@@ -49,6 +51,90 @@ class MusicQueryParser:
             self.nlp = None
             logger.warning("spaCy not available - basic fallback parsing only")
 
+    def _build_nyc_location_groups(self):
+        """Build NYC location proximity groups for intelligent matching"""
+        return {
+            # Manhattan neighborhoods - very close
+            "lower_manhattan": ["lower east side", "east village", "west village", "soho", "tribeca", "nolita", "chinatown", "little italy"],
+            "midtown_manhattan": ["midtown", "times square", "hell's kitchen", "theater district", "garment district", "murray hill"],
+            "upper_manhattan": ["upper east side", "upper west side", "harlem", "washington heights", "inwood"],
+
+            # Brooklyn neighborhoods - close to Manhattan
+            "north_brooklyn": ["williamsburg", "greenpoint", "dumbo", "brooklyn heights", "park slope", "fort greene"],
+            "central_brooklyn": ["prospect heights", "crown heights", "bed-stuy", "clinton hill", "carroll gardens"],
+            "south_brooklyn": ["red hook", "sunset park", "bay ridge", "bensonhurst", "coney island"],
+
+            # Queens neighborhoods
+            "west_queens": ["astoria", "long island city", "sunnyside", "woodside"],
+            "central_queens": ["elmhurst", "jackson heights", "corona", "flushing"],
+            "east_queens": ["forest hills", "kew gardens", "jamaica", "queens village"],
+
+            # Bronx neighborhoods
+            "south_bronx": ["mott haven", "melrose", "morrisania", "concourse"],
+            "central_bronx": ["fordham", "tremont", "belmont", "morris heights"],
+            "north_bronx": ["riverdale", "kingsbridge", "woodlawn", "wakefield"],
+
+            # Staten Island
+            "staten_island": ["st. george", "stapleton", "new brighton", "great kills", "tottenville"]
+        }
+
+    def get_location_similarity_score(self, query_location: str, profile_location: str) -> int:
+        """Calculate location similarity score (higher = closer)"""
+        query_loc = query_location.lower().strip()
+        profile_loc = profile_location.lower().strip()
+
+        # Exact match
+        if query_loc in profile_loc or profile_loc in query_loc:
+            return 100
+
+        # Find which groups each location belongs to
+        query_group = None
+        profile_group = None
+
+        for group_name, locations in self.nyc_location_groups.items():
+            if any(loc in query_loc for loc in locations):
+                query_group = group_name
+            if any(loc in profile_loc for loc in locations):
+                profile_group = group_name
+
+        # Same neighborhood group (very close)
+        if query_group and profile_group and query_group == profile_group:
+            return 90
+
+        # Manhattan to North Brooklyn (walking/short subway)
+        if (query_group in ["lower_manhattan", "midtown_manhattan"] and profile_group == "north_brooklyn") or \
+           (profile_group in ["lower_manhattan", "midtown_manhattan"] and query_group == "north_brooklyn"):
+            return 80
+
+        # Within same borough
+        manhattan_groups = ["lower_manhattan", "midtown_manhattan", "upper_manhattan"]
+        brooklyn_groups = ["north_brooklyn", "central_brooklyn", "south_brooklyn"]
+        queens_groups = ["west_queens", "central_queens", "east_queens"]
+        bronx_groups = ["south_bronx", "central_bronx", "north_bronx"]
+
+        if (query_group in manhattan_groups and profile_group in manhattan_groups) or \
+           (query_group in brooklyn_groups and profile_group in brooklyn_groups) or \
+           (query_group in queens_groups and profile_group in queens_groups) or \
+           (query_group in bronx_groups and profile_group in bronx_groups):
+            return 70
+
+        # Adjacent boroughs
+        if (query_group in manhattan_groups and profile_group in brooklyn_groups) or \
+           (profile_group in manhattan_groups and query_group in brooklyn_groups):
+            return 60
+
+        # Same city (NYC) but distant boroughs
+        if query_group and profile_group:
+            return 40
+
+        # Generic city matches (NYC, New York, etc.)
+        nyc_terms = ["new york", "nyc", "ny", "manhattan", "brooklyn", "queens", "bronx", "staten island"]
+        if any(term in query_loc for term in nyc_terms) and any(term in profile_loc for term in nyc_terms):
+            return 30
+
+        # No match
+        return 0
+
     def get_optimized_prompt(self, query: str) -> str:
         """Generate optimized prompt for music query parsing"""
         return f"""
@@ -62,7 +148,7 @@ Extract these fields with high accuracy:
 - location: City, state, or region mentioned
 - availability: Rehearsal frequency, schedule preferences, or time commitments
 - musical_influences: Artists, genres, or styles mentioned as influences or comparisons
-- collaboration_intent: Type of collaboration sought (band, duo, session work, etc.)
+- collaboration_intent: Type of collaboration sought (band formation, one-time gig, recording/studio work)
 
 IMPORTANT RULES:
 1. If a field is not mentioned or implied, return null
@@ -82,10 +168,10 @@ IMPORTANT RULES:
    - "like Amy Winehouse" → ["Amy Winehouse"]
    - "sounds like Flea" → ["Flea"]
    - "Bonham style" → ["Bonham"]
-7. For collaboration_intent, infer from context:
-   - "band", "group" → "band formation"
-   - "session work", "gig", "recording" → "session work"
-   - "duo", "partner" → "duo collaboration"
+7. For collaboration_intent, infer from context and temporal patterns:
+   - "band formation": "start a band", "form a group", "join a band", "long-term collaboration", "every week", "weekly", "every Monday", "regular", "ongoing", "monthly", "recurring commitments"
+   - "one-time gig": "wedding gig", "fill in", "one night", "specific show", "this Saturday", "next week", "one event", "festival", "single performance", "temporary"
+   - "recording/studio work": "recording", "studio work", "demo", "produce tracks", "mixing", "album", "EP", "session"
 
 Return only valid JSON without any explanation:
 """
@@ -344,6 +430,7 @@ Return only valid JSON without any explanation:
 # Initialize services
 parser = MusicQueryParser()
 matcher = OptimizedProfileMatcher("musician_profiles.json")
+location_intel = NYCLocationIntelligence()
 
 @app.route('/health', methods=['GET'])
 def health_check():
@@ -406,7 +493,7 @@ def get_examples():
                 "location": "Los Angeles",
                 "availability": None,
                 "musical_influences": ["Flea"],
-                "collaboration_intent": "session work"
+                "collaboration_intent": "recording/studio work"
             }
         },
         {
@@ -428,7 +515,7 @@ def get_examples():
                 "location": "Nashville",
                 "availability": "evening rehearsals",
                 "musical_influences": ["jazz"],
-                "collaboration_intent": "duo collaboration"
+                "collaboration_intent": "band formation"
             }
         }
     ]
@@ -552,18 +639,54 @@ def get_profiles():
 
         profiles = matcher.profiles.copy()
 
-        # Apply filters
-        if location:
-            profiles = [p for p in profiles if p.get('location', '').lower().find(location.lower()) != -1]
+        # Calculate compatibility scores for ALL profiles
+        for profile in profiles:
+            score = 0
 
-        if instrument:
-            profiles = [p for p in profiles if any(instrument.lower() in inst.lower() for inst in p.get('instruments', []))]
+            # Location scoring (0-50 points)
+            if location:
+                location_score = location_intel.get_proximity_score(location, profile.get('location', ''))
+                score += (location_score / 100) * 50
 
-        if genre:
-            profiles = [p for p in profiles if any(genre.lower() in g.lower() for g in p.get('genres', []))]
+            # Instrument matching (0-25 points)
+            if instrument:
+                instrument_match = any(instrument.lower() in inst.lower() for inst in profile.get('instruments', []))
+                if instrument_match:
+                    score += 25
+                else:
+                    # Partial credit for related instruments
+                    score += 5
 
-        if collaboration_intent:
-            profiles = [p for p in profiles if p.get('collaboration_intent', '').lower().find(collaboration_intent.lower()) != -1]
+            # Genre matching (0-15 points)
+            if genre:
+                genre_match = any(genre.lower() in g.lower() for g in profile.get('genres', []))
+                if genre_match:
+                    score += 15
+                else:
+                    # Partial credit for complementary genres
+                    score += 3
+
+            # Collaboration type matching (0-10 points)
+            if collaboration_intent:
+                collab_match = collaboration_intent.lower() in profile.get('collaboration_intent', '').lower()
+                if collab_match:
+                    score += 10
+                else:
+                    score += 2
+
+            # If no criteria specified, give base score
+            if not any([location, instrument, genre, collaboration_intent]):
+                score = 50
+
+            profile['_compatibility_score'] = score
+
+        # Sort by compatibility score (highest first)
+        profiles.sort(key=lambda p: p.get('_compatibility_score', 0), reverse=True)
+
+        # Keep the compatibility score in the response for frontend display
+        for profile in profiles:
+            score = profile.pop('_compatibility_score', 0)
+            profile['compatibility_score'] = round(score, 1)
 
         # Limit results
         profiles = profiles[:limit]
@@ -599,5 +722,180 @@ def get_profile(profile_id):
         logger.error(f"Error getting profile {profile_id}: {e}")
         return jsonify({"error": "Internal server error"}), 500
 
+@app.route('/locations/parse', methods=['POST'])
+def parse_location():
+    """Parse location from natural language text"""
+    try:
+        data = request.get_json()
+        if not data or 'location' not in data:
+            return jsonify({"error": "Location text is required"}), 400
+
+        location_text = data['location']
+        parsed = location_intel.parse_location(location_text)
+
+        if not parsed:
+            return jsonify({
+                "success": False,
+                "message": "Could not parse location",
+                "input": location_text
+            })
+
+        return jsonify({
+            "success": True,
+            "input": location_text,
+            "parsed": parsed
+        })
+
+    except Exception as e:
+        logger.error(f"Error parsing location: {e}")
+        return jsonify({"error": "Internal server error"}), 500
+
+@app.route('/locations/nearby', methods=['GET'])
+def get_nearby_locations():
+    """Get nearby neighborhoods for a given location"""
+    try:
+        location = request.args.get('location')
+        min_score = request.args.get('min_score', default=30, type=int)
+
+        if not location:
+            return jsonify({"error": "Location parameter is required"}), 400
+
+        nearby = location_intel.get_nearby_neighborhoods(location, min_score)
+
+        return jsonify({
+            "query_location": location,
+            "min_proximity_score": min_score,
+            "nearby_neighborhoods": nearby,
+            "total_found": len(nearby)
+        })
+
+    except Exception as e:
+        logger.error(f"Error getting nearby locations: {e}")
+        return jsonify({"error": "Internal server error"}), 500
+
+@app.route('/locations/proximity', methods=['POST'])
+def calculate_proximity():
+    """Calculate proximity score between two locations"""
+    try:
+        data = request.get_json()
+        if not data or 'location1' not in data or 'location2' not in data:
+            return jsonify({"error": "Both location1 and location2 are required"}), 400
+
+        location1 = data['location1']
+        location2 = data['location2']
+
+        score = location_intel.get_proximity_score(location1, location2)
+        parsed1 = location_intel.parse_location(location1)
+        parsed2 = location_intel.parse_location(location2)
+
+        # Get travel description
+        travel_desc = "Unknown"
+        if score >= 90:
+            travel_desc = "Same area - walking distance"
+        elif score >= 80:
+            travel_desc = "Very close - short subway ride"
+        elif score >= 70:
+            travel_desc = "Close - same borough or adjacent"
+        elif score >= 50:
+            travel_desc = "Moderate - cross-borough commute"
+        elif score >= 30:
+            travel_desc = "Distant - longer commute required"
+        else:
+            travel_desc = "Very distant - significant travel time"
+
+        return jsonify({
+            "location1": location1,
+            "location2": location2,
+            "proximity_score": score,
+            "travel_description": travel_desc,
+            "parsed_locations": {
+                "location1": parsed1,
+                "location2": parsed2
+            }
+        })
+
+    except Exception as e:
+        logger.error(f"Error calculating proximity: {e}")
+        return jsonify({"error": "Internal server error"}), 500
+
+@app.route('/locations/stats', methods=['GET'])
+def get_location_stats():
+    """Get statistics about the location intelligence system"""
+    try:
+        stats = location_intel.get_location_stats()
+
+        return jsonify({
+            "system_info": "NYC Location Intelligence System",
+            "version": "1.0.0",
+            "statistics": stats,
+            "features": [
+                "Natural language location parsing",
+                "Neighborhood proximity scoring",
+                "Borough-aware distance calculation",
+                "NYC-specific location intelligence",
+                "No external API dependencies"
+            ]
+        })
+
+    except Exception as e:
+        logger.error(f"Error getting location stats: {e}")
+        return jsonify({"error": "Internal server error"}), 500
+
+@app.route('/locations/examples', methods=['GET'])
+def get_location_examples():
+    """Get example location queries and results"""
+    try:
+        examples = [
+            {
+                "input": "lower east side",
+                "expected_type": "neighborhood",
+                "expected_borough": "Manhattan",
+                "nearby_areas": ["East Village", "West Village", "SoHo"]
+            },
+            {
+                "input": "williamsburg",
+                "expected_type": "neighborhood",
+                "expected_borough": "Brooklyn",
+                "nearby_areas": ["Greenpoint", "DUMBO", "Park Slope"]
+            },
+            {
+                "input": "astoria",
+                "expected_type": "neighborhood",
+                "expected_borough": "Queens",
+                "nearby_areas": ["Long Island City", "Sunnyside"]
+            },
+            {
+                "input": "brooklyn",
+                "expected_type": "borough",
+                "expected_borough": "Brooklyn",
+                "nearby_areas": ["All Brooklyn neighborhoods"]
+            },
+            {
+                "input": "nyc",
+                "expected_type": "city",
+                "expected_borough": "All",
+                "nearby_areas": ["All NYC neighborhoods"]
+            }
+        ]
+
+        # Test each example
+        for example in examples:
+            parsed = location_intel.parse_location(example["input"])
+            example["actual_result"] = parsed
+
+        return jsonify({
+            "description": "Sample location parsing examples",
+            "examples": examples,
+            "usage": {
+                "parse": "POST /locations/parse with {'location': 'text'}",
+                "nearby": "GET /locations/nearby?location=text&min_score=30",
+                "proximity": "POST /locations/proximity with {'location1': 'text1', 'location2': 'text2'}"
+            }
+        })
+
+    except Exception as e:
+        logger.error(f"Error getting location examples: {e}")
+        return jsonify({"error": "Internal server error"}), 500
+
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5004)
+    app.run(debug=True, host='0.0.0.0', port=5005)

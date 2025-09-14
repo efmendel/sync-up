@@ -44,7 +44,7 @@ const availabilities = [
 ];
 
 const experienceLevels = ['beginner', 'intermediate', 'advanced', 'professional'] as const;
-const collaborationTypes = ['band', 'solo', 'session', 'teaching', 'jamming', 'recording'] as const;
+const collaborationTypes = ['band formation', 'one-time gig', 'recording/studio work'] as const;
 
 const bios = [
   "Passionate musician looking to connect with like-minded artists for creative collaboration.",

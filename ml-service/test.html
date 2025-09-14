@@ -46,7 +46,7 @@
             try {
                 resultDiv.innerHTML = '<div class="result">Parsing query...</div>';
 
-                const response = await fetch('http://localhost:5003/parse', {
+                const response = await fetch('http://localhost:5005/parse', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -76,7 +76,7 @@
                     <div class="result error">
                         <h4>❌ Network Error:</h4>
                         <p>${error.message}</p>
-                        <p>Make sure the Flask server is running on http://localhost:5003</p>
+                        <p>Make sure the Flask server is running on http://localhost:5005</p>
                     </div>
                 `;
             }

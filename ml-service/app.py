@@ -1,7 +1,12 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import openai
-import spacy
+try:
+    import spacy
+    SPACY_AVAILABLE = True
+except (ImportError, ValueError) as e:
+    SPACY_AVAILABLE = False
+    print(f"spaCy not available ({e}), using basic fallback only")
 import os
 import re
 from typing import Dict, Any, Optional
@@ -32,11 +37,16 @@ class MusicQueryParser:
         except Exception as e:
             logger.error(f"Failed to initialize OpenAI: {e}")
 
-        try:
-            self.nlp = spacy.load("en_core_web_sm")
-            logger.info("spaCy model loaded successfully")
-        except Exception as e:
-            logger.error(f"Failed to load spaCy model: {e}")
+        if SPACY_AVAILABLE:
+            try:
+                self.nlp = spacy.load("en_core_web_sm")
+                logger.info("spaCy model loaded successfully")
+            except Exception as e:
+                logger.warning(f"spaCy model not found: {e} - using basic parsing")
+                self.nlp = None
+        else:
+            self.nlp = None
+            logger.warning("spaCy not available - basic fallback parsing only")
 
     def get_optimized_prompt(self, query: str) -> str:
         """Generate optimized prompt for music query parsing"""
@@ -53,14 +63,28 @@ Extract these fields with high accuracy:
 - musical_influences: Artists, genres, or styles mentioned as influences or comparisons
 - collaboration_intent: Type of collaboration sought (band, duo, session work, etc.)
 
-Rules:
+IMPORTANT RULES:
 1. If a field is not mentioned or implied, return null
-2. For instruments, include both explicitly mentioned and contextually implied ones
-3. For gender, look for pronouns, gendered terms, or explicit mentions
-4. For location, extract any geographic references
-5. For availability, capture time commitments, rehearsal schedules
-6. For musical_influences, include artists used for comparison ("like Amy Winehouse")
-7. For collaboration_intent, infer from context (seeking bandmates, session work, etc.)
+2. For instruments, include both explicitly mentioned and contextually implied ones:
+   - "vocalist", "singer", "frontman", "frontwoman", "vocals" → ["vocals"]
+   - "guitarist" → ["guitar"]
+   - "bassist", "bass player" → ["bass"]
+   - "drummer" → ["drums"]
+   - "keyboardist", "pianist" → ["piano"]
+3. For gender, look for pronouns, gendered terms, or explicit mentions:
+   - "male", "man", "guy", "he", "him", "his", "frontman" → "male"
+   - "female", "woman", "girl", "she", "her", "frontwoman" → "female"
+4. For location, extract any geographic references (cities, states, countries)
+5. For availability, capture time commitments, rehearsal schedules:
+   - "twice a week", "once a week", "weekends only", "2-3 hours weekly"
+6. For musical_influences, include artists used for comparison:
+   - "like Amy Winehouse" → ["Amy Winehouse"]
+   - "sounds like Flea" → ["Flea"]
+   - "Bonham style" → ["Bonham"]
+7. For collaboration_intent, infer from context:
+   - "band", "group" → "band formation"
+   - "session work", "gig", "recording" → "session work"
+   - "duo", "partner" → "duo collaboration"
 
 Return only valid JSON without any explanation:
 """
@@ -99,12 +123,7 @@ Return only valid JSON without any explanation:
             return None
 
     def parse_with_spacy(self, query: str) -> Dict[str, Any]:
-        """Fallback parsing using spaCy NLP"""
-        if not self.nlp:
-            return self.get_default_response()
-
-        doc = self.nlp(query.lower())
-
+        """Basic fallback parsing without spaCy"""
         result = {
             "instruments": [],
             "gender": None,
@@ -114,72 +133,176 @@ Return only valid JSON without any explanation:
             "collaboration_intent": None
         }
 
-        # Instrument detection
-        instruments = [
-            "guitar", "bass", "drums", "piano", "keyboard", "violin", "vocals",
-            "singing", "voice", "trumpet", "saxophone", "flute", "cello"
-        ]
-        for token in doc:
-            if token.text in instruments:
-                if token.text in ["vocals", "singing", "voice"]:
+        query_lower = query.lower()
+
+        # Enhanced Instrument detection
+        instruments = {
+            "guitar": ["guitar", "guitarist", "axe", "shred", "riff", "six-string"],
+            "bass": ["bass", "bassist", "four-string", "low-end", "rhythm section"],
+            "drums": ["drums", "drummer", "percussion", "beat", "rhythm", "kit", "sticks"],
+            "piano": ["piano", "pianist", "keys", "keyboard", "keyboardist", "ivories"],
+            "vocals": ["vocals", "vocalist", "singer", "singing", "voice", "mic", "frontman", "frontwoman"],
+            "violin": ["violin", "violinist", "fiddle", "strings"],
+            "saxophone": ["saxophone", "sax", "saxophonist"],
+            "trumpet": ["trumpet", "trumpeter", "horn"],
+            "flute": ["flute", "flutist"],
+            "cello": ["cello", "cellist"]
+        }
+
+        for instrument, synonyms in instruments.items():
+            if any(synonym in query_lower for synonym in synonyms):
+                if instrument == "vocals":
                     result["instruments"].append("vocals")
                 else:
-                    result["instruments"].append(token.text)
+                    result["instruments"].append(instrument)
 
-        # Gender detection
+        # Enhanced Gender detection
         gender_keywords = {
-            "female": ["female", "woman", "girl", "she", "her"],
-            "male": ["male", "man", "guy", "he", "him", "his"]
+            "female": ["female", "woman", "girl", "she", "her", "gal", "lady", "chick", "frontwoman"],
+            "male": ["male", "man", "guy", "he", "him", "his", "dude", "bro", "gentleman", "frontman"]
         }
 
         for gender, keywords in gender_keywords.items():
-            if any(keyword in query.lower() for keyword in keywords):
+            if any(keyword in query_lower for keyword in keywords):
                 result["gender"] = gender
                 break
 
-        # Location detection (using named entities)
-        locations = [ent.text for ent in doc.ents if ent.label_ in ["GPE", "LOC"]]
-        if locations:
-            result["location"] = locations[0].title()
-
-        # Availability detection
-        availability_patterns = [
-            r"(\w+)\s+times?\s+a\s+week",
-            r"rehearse\s+(\w+)\s+times?",
-            r"(\d+)\s+hours?\s+a\s+week"
+        # Enhanced location detection - Cities, States, Countries
+        locations = [
+            # Major US Cities
+            "brooklyn", "manhattan", "los angeles", "chicago", "nashville", "austin",
+            "seattle", "portland", "denver", "atlanta", "boston", "miami", "dallas",
+            "houston", "phoenix", "san francisco", "detroit", "philadelphia", "new york",
+            "la", "nyc", "sf", "dc", "washington dc", "baltimore", "tampa", "orlando",
+            "vegas", "las vegas", "san diego", "sacramento", "oakland", "minneapolis",
+            "cleveland", "pittsburgh", "milwaukee", "kansas city", "new orleans",
+            # US States
+            "california", "new york state", "texas", "florida", "illinois", "pennsylvania",
+            "ohio", "georgia", "north carolina", "michigan", "virginia", "washington state",
+            "arizona", "massachusetts", "tennessee", "indiana", "missouri", "maryland",
+            "wisconsin", "colorado", "minnesota", "south carolina", "alabama", "louisiana",
+            # Countries
+            "turkey", "england", "uk", "united kingdom", "canada", "australia", "germany",
+            "france", "italy", "spain", "netherlands", "sweden", "norway", "denmark",
+            "finland", "japan", "south korea", "brazil", "mexico", "argentina", "chile",
+            "ireland", "scotland", "wales", "belgium", "switzerland", "austria", "poland",
+            "czech republic", "hungary", "portugal", "greece", "russia", "india", "china",
+            # Major International Cities
+            "london", "paris", "berlin", "madrid", "rome", "amsterdam", "stockholm",
+            "oslo", "copenhagen", "helsinki", "tokyo", "seoul", "sydney", "melbourne",
+            "toronto", "vancouver", "montreal", "dublin", "edinburgh", "barcelona",
+            "munich", "vienna", "prague", "budapest", "lisbon", "athens", "moscow",
+            "mumbai", "delhi", "bangalore", "shanghai", "beijing", "hong kong", "singapore"
         ]
 
-        for pattern in availability_patterns:
-            match = re.search(pattern, query.lower())
-            if match:
-                result["availability"] = f"rehearses {match.group(1)} times a week"
+        # Sort by length (longest first) to match "Los Angeles" before "Angeles"
+        locations.sort(key=len, reverse=True)
+        for location in locations:
+            if location in query_lower:
+                # Clean up abbreviations
+                if location == "la":
+                    result["location"] = "Los Angeles"
+                elif location == "nyc":
+                    result["location"] = "New York"
+                elif location == "sf":
+                    result["location"] = "San Francisco"
+                elif location == "dc":
+                    result["location"] = "Washington DC"
+                elif location == "vegas":
+                    result["location"] = "Las Vegas"
+                else:
+                    result["location"] = location.title()
                 break
 
-        # Musical influences detection
-        influence_patterns = [
-            r"like\s+([a-zA-Z\s]+?)(?:\s|$|,)",
-            r"sounds?\s+like\s+([a-zA-Z\s]+?)(?:\s|$|,)",
-            r"similar\s+to\s+([a-zA-Z\s]+?)(?:\s|$|,)"
+        # Enhanced Availability detection
+        availability_patterns = [
+            (r"weekends?\s+only", "weekends only"),
+            (r"twice\s+a\s+week", "twice a week"),
+            (r"once\s+a\s+week", "once a week"),
+            (r"thrice\s+a\s+week", "thrice a week"),
+            (r"(\w+)\s+times?\s+a\s+week", lambda m: f"{m.group(1)} times a week"),
+            (r"(\w+)\s+times?\s+weekly", lambda m: f"{m.group(1)} times weekly"),
+            (r"rehearse\s+(\w+)\s+times?", lambda m: f"rehearses {m.group(1)} times"),
+            (r"(\d+)-?(\d+)?\s+hours?\s+(weekly|per\s+week)", lambda m: f"{m.group(1)}-{m.group(2) or m.group(1)} hours weekly" if m.group(2) else f"{m.group(1)} hours weekly"),
+            (r"(\d+)\s+hours?\s+a\s+week", lambda m: f"{m.group(1)} hours a week"),
+            (r"evenings?\s+only", "evenings only"),
+            (r"weekday\s+evenings?", "weekday evenings"),
+            (r"full.?time", "full-time"),
+            (r"part.?time", "part-time"),
+            (r"flexible\s+schedule", "flexible schedule"),
+            (r"commit\s+(\d+)-?(\d+)?\s+hours", lambda m: f"can commit {m.group(1)}-{m.group(2)} hours" if m.group(2) else f"can commit {m.group(1)} hours")
         ]
+
+        for pattern, replacement in availability_patterns:
+            match = re.search(pattern, query_lower)
+            if match:
+                if callable(replacement):
+                    result["availability"] = replacement(match)
+                else:
+                    result["availability"] = replacement
+                break
+
+        # Enhanced Musical influences detection - capture full names better
+        influence_patterns = [
+            r"like\s+([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)+)",  # Captures "Michael Jackson", "Amy Winehouse"
+            r"like\s+([a-zA-Z]{3,}(?:\s+[a-zA-Z]{3,})*)",      # Backup pattern for names
+            r"plays?\s+like\s+([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)*)",  # "plays like Flea"
+            r"plays?\s+like\s+([a-zA-Z]{3,}(?:\s+[a-zA-Z]{3,})*)",
+            r"sounds?\s+like\s+([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)+)",
+            r"sounds?\s+like\s+([a-zA-Z]{3,}(?:\s+[a-zA-Z]{3,})*)",
+            r"similar\s+to\s+([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)+)",
+            r"similar\s+to\s+([a-zA-Z]{3,}(?:\s+[a-zA-Z]{3,})*)",
+            r"in\s+the\s+style\s+of\s+([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)+)",
+            r"in\s+the\s+style\s+of\s+([a-zA-Z]{3,}(?:\s+[a-zA-Z]{3,})*)",
+            r"reminiscent\s+of\s+([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)+)",
+            r"reminiscent\s+of\s+([a-zA-Z]{3,}(?:\s+[a-zA-Z]{3,})*)",
+            r"channeling\s+([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)+)",
+            r"channeling\s+([a-zA-Z]{3,}(?:\s+[a-zA-Z]{3,})*)",
+            r"can\s+shred\s+like\s+([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)+)",
+            r"can\s+shred\s+like\s+([a-zA-Z]{3,}(?:\s+[a-zA-Z]{3,})*)",
+            r"(\w+)\s+style"  # Simple style patterns like "bonham style"
+        ]
+
+        # Common stop words that shouldn't be artist names
+        stop_words = {
+            "the", "and", "for", "who", "can", "that", "with", "from", "they", "this",
+            "have", "been", "were", "said", "each", "which", "their", "time", "will",
+            "about", "would", "there", "could", "other", "more", "very", "what", "know",
+            "just", "first", "also", "after", "back", "good", "well", "way", "even",
+            "new", "want", "because", "any", "these", "give", "day", "most", "us"
+        }
 
         for pattern in influence_patterns:
             matches = re.findall(pattern, query, re.IGNORECASE)
             for match in matches:
                 clean_match = match.strip()
-                if len(clean_match) > 2:
+                # Filter out short matches and stop words
+                words = clean_match.lower().split()
+                if (len(clean_match) > 2 and
+                    not any(word in stop_words for word in words) and
+                    len([w for w in words if len(w) > 2]) >= 1):  # At least one substantial word
                     result["musical_influences"].append(clean_match.title())
 
-        # Collaboration intent detection
-        if any(word in query.lower() for word in ["band", "group", "bandmate"]):
-            result["collaboration_intent"] = "band formation"
-        elif any(word in query.lower() for word in ["session", "gig", "recording"]):
-            result["collaboration_intent"] = "session work"
-        elif any(word in query.lower() for word in ["duo", "pair", "partner"]):
-            result["collaboration_intent"] = "duo collaboration"
+        # Enhanced Collaboration intent detection
+        collaboration_patterns = [
+            (["band", "group", "bandmate", "member"], "band formation"),
+            (["session", "gig", "recording", "studio work", "hired gun"], "session work"),
+            (["duo", "pair", "partner", "acoustic duo"], "duo collaboration"),
+            (["project", "musical project", "prog rock project", "side project"], "project collaboration"),
+            (["jam", "jamming", "jam session"], "jamming"),
+            (["teach", "teaching", "lessons", "instructor"], "teaching"),
+            (["cover band", "tribute"], "cover band"),
+            (["original", "originals", "songwriting"], "original music")
+        ]
 
-        # Clean up empty lists
+        for keywords, intent in collaboration_patterns:
+            if any(keyword in query_lower for keyword in keywords):
+                result["collaboration_intent"] = intent
+                break
+
+        # Clean up empty lists and remove duplicates
         result["instruments"] = list(set(result["instruments"])) if result["instruments"] else None
-        result["musical_influences"] = result["musical_influences"] if result["musical_influences"] else None
+        result["musical_influences"] = list(set(result["musical_influences"])) if result["musical_influences"] else None
 
         return result
 
@@ -309,4 +432,4 @@ def get_examples():
     return jsonify({"examples": examples})
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5001)
+    app.run(debug=True, host='0.0.0.0', port=5003)

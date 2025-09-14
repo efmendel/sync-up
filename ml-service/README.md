@@ -77,7 +77,7 @@ Environment variables in `.env`:
 OPENAI_API_KEY=your_key_here
 FLASK_ENV=development
 HOST=0.0.0.0
-PORT=5001
+PORT=5002
 ```
 
 ## 📝 Sample Queries
@@ -99,7 +99,7 @@ PORT=5001
 
 For production, use gunicorn:
 ```bash
-gunicorn -w 4 -b 0.0.0.0:5001 app:app
+gunicorn -w 4 -b 0.0.0.0:5002 app:app
 ```
 
 ## 🤝 Integration

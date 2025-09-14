@@ -1,5 +1,46 @@
 
-# Python Virtual Environment
+# Python Virtual Environments
 ml-service/venv/
+ml-service/ml-env/
+venv/
+ml-env/
+env/
+.venv/
+
+# Python Cache
 ml-service/__pycache__/
+__pycache__/
 **/*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Environment Variables (contains secrets!)
+.env
+**/.env
+ml-service/.env
+
+# IDE Files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Other Python
+*.egg-info/
+dist/
+build/

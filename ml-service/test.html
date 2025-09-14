@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Music Query Parser Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 50px auto; padding: 20px; }
+        textarea { width: 100%; height: 100px; margin: 10px 0; }
+        button { background: #007bff; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; }
+        button:hover { background: #0056b3; }
+        .result { background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 5px; padding: 15px; margin: 10px 0; }
+        .error { background: #f8d7da; border-color: #f5c6cb; color: #721c24; }
+    </style>
+</head>
+<body>
+    <h1>🎵 Music Query Parser Test</h1>
+
+    <div>
+        <label for="query">Enter your music collaboration query:</label>
+        <textarea id="query" placeholder="e.g., find a female vocalist in brooklyn who rehearses twice a week and sings like amy winehouse"></textarea>
+        <button onclick="testQuery()">Parse Query</button>
+    </div>
+
+    <div id="result"></div>
+
+    <h3>Sample Queries:</h3>
+    <ul>
+        <li><a href="#" onclick="setQuery('find a female vocalist in brooklyn who rehearses twice a week and sings like amy winehouse')">Female vocalist example</a></li>
+        <li><a href="#" onclick="setQuery('looking for a bass player in los angeles for session work, preferably someone who sounds like flea')">Bass player example</a></li>
+        <li><a href="#" onclick="setQuery('drummer needed for indie rock band, must be available 3 times a week, bonham style')">Drummer example</a></li>
+    </ul>
+
+    <script>
+        function setQuery(text) {
+            document.getElementById('query').value = text;
+        }
+
+        async function testQuery() {
+            const query = document.getElementById('query').value;
+            const resultDiv = document.getElementById('result');
+
+            if (!query.trim()) {
+                resultDiv.innerHTML = '<div class="result error">Please enter a query</div>';
+                return;
+            }
+
+            try {
+                resultDiv.innerHTML = '<div class="result">Parsing query...</div>';
+
+                const response = await fetch('http://localhost:5003/parse', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ query: query })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    resultDiv.innerHTML = `
+                        <div class="result">
+                            <h4>✅ Parsing Results:</h4>
+                            <pre>${JSON.stringify(data, null, 2)}</pre>
+                        </div>
+                    `;
+                } else {
+                    resultDiv.innerHTML = `
+                        <div class="result error">
+                            <h4>❌ Error:</h4>
+                            <pre>${JSON.stringify(data, null, 2)}</pre>
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `
+                    <div class="result error">
+                        <h4>❌ Network Error:</h4>
+                        <p>${error.message}</p>
+                        <p>Make sure the Flask server is running on http://localhost:5003</p>
+                    </div>
+                `;
+            }
+        }
+    </script>
+</body>
+</html>

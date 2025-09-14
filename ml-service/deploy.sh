@@ -42,7 +42,7 @@ fi
 # Start the service
 echo ""
 echo "🚀 Starting Music Query Parser service..."
-echo "Service will be available at: http://localhost:5001"
+echo "Service will be available at: http://localhost:5002"
 echo ""
 echo "Available endpoints:"
 echo "- POST /parse - Parse music queries"

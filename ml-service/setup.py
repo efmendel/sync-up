@@ -61,7 +61,7 @@ def main():
     print("\nNext steps:")
     print("1. Add your OpenAI API key to the .env file")
     print("2. Run the service: python app.py")
-    print("3. Test at: http://localhost:5001/health")
+    print("3. Test at: http://localhost:5002/health")
     print("\n📚 API Endpoints:")
     print("- POST /parse - Parse music queries")
     print("- GET /examples - View sample queries")

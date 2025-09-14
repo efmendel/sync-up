@@ -10,7 +10,7 @@ import sys
 import time
 
 # Configuration
-BASE_URL = "http://localhost:5001"
+BASE_URL = "http://localhost:5002"
 
 # Sample test queries with expected outputs
 TEST_QUERIES = [

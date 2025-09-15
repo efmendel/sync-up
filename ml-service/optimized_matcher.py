@@ -7,6 +7,7 @@ from datetime import datetime
 import logging
 from functools import lru_cache
 import hashlib
+from location_intelligence import NYCLocationIntelligence
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +18,7 @@ class OptimizedProfileMatcher:
         self.instrument_groups = self._define_instrument_groups()
         self.genre_similarities = self._define_genre_similarities()
         self.availability_patterns = self._define_availability_patterns()
+        self.location_intelligence = NYCLocationIntelligence()
 
         # Pre-compute profile features for faster matching
         self._precompute_profile_features()
@@ -217,7 +219,7 @@ class OptimizedProfileMatcher:
         return max_similarity
 
     def score_location_compatibility(self, query_location: str, profile: Dict[str, Any]) -> float:
-        """Score location compatibility based on distance (optimized)"""
+        """Score location compatibility using NYC Location Intelligence system"""
         if not query_location:
             return 0.5  # Neutral if location not specified
 
@@ -225,44 +227,19 @@ class OptimizedProfileMatcher:
         if not profile_location:
             return 0.4
 
-        # Use pre-computed location data
-        query_lower = query_location.lower()
-        profile_lower = profile.get('_location_lower', '')
-
-        # Exact location match
-        if query_lower == profile_lower:
-            return 1.0
-
-        # Same city/state partial match using pre-computed parts
-        query_parts = query_lower.split(', ')
-        profile_parts = profile.get('_location_parts', [])
-
-        if len(query_parts) >= 2 and len(profile_parts) >= 2:
-            # Same state
-            if query_parts[-1] == profile_parts[-1]:
-                # Same city and state
-                if query_parts[-2] == profile_parts[-2]:
-                    return 0.9
-                # Same state, different city
-                return 0.65
-
-        # Distance-based scoring (if coordinates available)
-        query_coords = None  # Would need geocoding in real implementation
-        profile_coords = profile.get('coordinates')
-
-        if query_coords and profile_coords:
-            coords1 = (query_coords['lat'], query_coords['lng'])
-            coords2 = (profile_coords['lat'], profile_coords['lng'])
-            distance = self.calculate_geographic_distance(coords1, coords2)
-
-            if distance <= 10:      return 0.95
-            elif distance <= 25:    return 0.85
-            elif distance <= 50:    return 0.75
-            elif distance <= 100:   return 0.65
-            elif distance <= 250:   return 0.45
-            else:                   return 0.25
-
-        return 0.35  # Default for no distance info
+        # Use NYC Location Intelligence for sophisticated location matching
+        try:
+            proximity_score = self.location_intelligence.get_proximity_score(query_location, profile_location)
+            # Convert 0-100 scale to 0-1.0 scale
+            return proximity_score / 100.0
+        except Exception as e:
+            logger.warning(f"Location intelligence failed for '{query_location}' vs '{profile_location}': {e}")
+            # Fallback to simple string matching
+            if query_location.lower() == profile_location.lower():
+                return 1.0
+            elif query_location.lower() in profile_location.lower() or profile_location.lower() in query_location.lower():
+                return 0.7
+            return 0.35
 
     def score_availability_compatibility(self, query_availability: str, profile_availability: str) -> float:
         """Score availability compatibility (optimized with pre-compiled patterns)"""

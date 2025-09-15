@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify
 from flask_cors import CORS
 import openai
 try:
@@ -898,9 +898,21 @@ def get_location_examples():
         return jsonify({"error": "Internal server error"}), 500
 
 @app.route('/')
-def serve_frontend():
-    """Serve the frontend HTML file"""
-    return send_from_directory('static', 'music_search_frontend.html')
+def health_root():
+    """Root endpoint - API health check"""
+    return jsonify({
+        "service": "Sync Up ML Service",
+        "status": "healthy",
+        "version": "1.0.0",
+        "endpoints": {
+            "health": "/health",
+            "parse": "/parse",
+            "profiles": "/profiles",
+            "match": "/match",
+            "locations": "/locations/*"
+        },
+        "message": "ML Service API is running. Frontend is now served separately."
+    })
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5005)

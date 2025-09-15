@@ -8,6 +8,7 @@ import { notFoundHandler } from './middleware/notFoundHandler';
 import userRoutes from './routes/users';
 import healthRoutes from './routes/health';
 import searchRoutes from './routes/search';
+import aiSearchRoutes from './routes/ai-search';
 import messageRoutes from './routes/messages';
 
 dotenv.config();
@@ -36,6 +37,7 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use('/api/health', healthRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/search', searchRoutes);
+app.use('/api/ai-search', aiSearchRoutes);
 app.use('/api/messages', messageRoutes);
 
 // 404 handler
